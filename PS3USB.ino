@@ -5,6 +5,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#define NUM_KITS 1
+#define KIT_OFFSET 16
+
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
@@ -35,6 +38,7 @@ PS3USB PS3(&Usb); // This will just create the instance
 
 bool collecting = true;
 bool isKickDown = false;
+uint8_t currentKit = 0;
 
 uint8_t currentBuf[EP_MAXPKTSIZE];
 uint8_t newBuf[EP_MAXPKTSIZE];
@@ -42,7 +46,8 @@ uint8_t newBuf[EP_MAXPKTSIZE];
 char intensityStr[30];
 
 bool drumsActive = false;
-bool isHoldingDpad = false;
+//bool isHoldingDpad = false;
+uint8_t prevDpad = 0xFF;
 
 wavTrigger wTrig;
 int masterGain = 0;
@@ -127,7 +132,7 @@ void drawLastHit(uint8_t track, uint8_t trackToUse) {
 inline void playDrum(uint8_t track, uint8_t intensity)
 {
   int triggerVol = map(intensity, 225, 64, MIN_GAIN, MAX_GAIN);
-  uint8_t trackToUse = track;
+  uint8_t trackToUse = track + (currentKit * KIT_OFFSET);
   if (useOffsetForTrack[track - 1])
   {
     trackToUse += SECONDARY_OFFSET;
@@ -433,36 +438,60 @@ void loop() {
       #ifndef RAW_PACKET_DEBUG
       // Handle gain changes
       uint8_t dpad = newBuf[2];
-      if (dpad == 0x02 || dpad == 0x06)
+      // Dpad keyup
+      if (prevDpad != 0x08 && dpad == 0x08 && (newBuf[0] & 0x0F) == 0x00)
       {
-        switch (dpad)
+        switch (prevDpad)
         {
+          case 0x00: // UP
+            if (currentKit + 1 < NUM_KITS)
+            {
+              ++currentKit;
+            }
+            break;
+          case 0x04: // DOWN
+            if (currentKit != 0)
+            {
+              --currentKit;
+            }
+            break;
           case 0x06: // LEFT
-            masterGain = max(-70, --masterGain);
+            masterGain = max(-70, masterGain - 1);
             wTrig.masterGain(masterGain);
             break;
           case 0x02: // RIGHT
-            masterGain = min(4, ++masterGain);
+            masterGain = min(4, masterGain + 1);
             wTrig.masterGain(masterGain);
             break;
         }
     
         display.clearDisplay();
         display.setCursor(0, 0);     // Start at top-left corner
-        display.println("GAIN");
-        itoa(masterGain, intensityStr, 10);
-        display.println(intensityStr);
+        if (prevDpad == 0x06 || prevDpad == 0x02)
+        {
+          display.println("GAIN");
+          itoa(masterGain, intensityStr, 10);
+          display.println(intensityStr);
+        }
+        else
+        {
+          display.println("KIT");
+          itoa(currentKit, intensityStr, 10);
+          display.println(intensityStr);
+        }
         display.display();
-        if (!isHoldingDpad)
+        /*if (!isHoldingDpad)
         {
           delay(250); // Don't immediately start treating as a repeat
           isHoldingDpad = true;
-        }
+        }*/
 
-        return;
+        //return;
       }
 
-      isHoldingDpad = false;
+      prevDpad = dpad;
+
+      //isHoldingDpad = false;
 
       // This is what a clean "bass drum" hit look like
       // 20 00 08 80 80 80 80 00 00 00 00 00 00 00 00 00 FF
