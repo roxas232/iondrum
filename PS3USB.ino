@@ -366,6 +366,124 @@ void setup()
   wTrig.samplerateOffset(0);  
 }
 
+void displayGain()
+{
+  display.print(masterGain > -70 ? "^" : " ");
+  display.print(" GAIN ");
+  display.println(masterGain < 4 ? "V" : " ");
+  itoa(masterGain, numberDispStr, 10);
+  display.println(numberDispStr);
+}
+
+void displayKit()
+{
+  display.print(currentKit > 0 ? "<" : " ");
+  display.print(" KIT ");
+  itoa(currentKit, numberDispStr, 10);
+  display.print(numberDispStr);
+  display.println(currentKit < NUM_KITS - 1 ? ">" : " ");
+
+  display.println(kitNames[currentKit]);
+}
+
+// Handle kit/gain changes
+void handleDpad()
+{
+  uint8_t dpad = newBuf[2];
+  // Dpad keyup
+  if (prevDpad != 0x08 && dpad == 0x08 && (currentBuf[0] & 0x0F) == 0x00 && (newBuf[0] & 0x0F) == 0x00)
+  {
+    switch (prevDpad)
+    {
+      case 0x02: // RIGHT
+        if (currentKit + 1 < NUM_KITS)
+        {
+          ++currentKit;
+        }
+        break;
+      case 0x06: // LEFT
+        if (currentKit != 0)
+        {
+          --currentKit;
+        }
+        break;
+      case 0x04: // DOWN
+        masterGain = max(-70, masterGain - 1);
+        wTrig.masterGain(masterGain);
+        break;
+      case 0x00: // UP
+        masterGain = min(4, masterGain + 1);
+        wTrig.masterGain(masterGain);
+        break;
+    }
+
+    display.clearDisplay();
+    display.setCursor(0, 0);     // Start at top-left corner
+    if (prevDpad == 0x06 || prevDpad == 0x02)
+    {
+      displayGain();
+    }
+    else
+    {
+      displayKit();
+    }
+    display.display();
+  }
+
+  prevDpad = dpad;
+}
+
+// Process USB data to determine if a bass drum hit occurred
+// and play noise
+void handleKick()
+{
+  // This is what a clean "bass drum" hit look like
+  // 20 00 08 80 80 80 80 00 00 00 00 00 00 00 00 00 FF
+  // 30 00 08 80 80 80 80 00 00 00 00 00 00 00 00 FF FF 
+  if (!isKickDown && (newBuf[0] & 0x10) == 0x10)
+  {
+    isKickDown = true;
+  }
+  else if (isKickDown && (newBuf[0] & 0x10) == 0x00)
+  {
+    // Always MAXIMUM BASS...or close
+    playDrum(KICK_TRACK, KICK_VOLUME); // 64
+    isKickDown = false;
+  }
+}
+
+// Process USB data to determine if a normal drum and/or cymbal hit occurred
+// and play noise
+void handleDrumHit()
+{
+  if ((newBuf[0] & ~DrumColor::DORG) == 0x00 && newBuf[1] == 0x00)
+  {
+    collecting = false;
+  }
+
+  if (collecting)
+  {
+    for (uint8_t i = 0; i < EP_MAXPKTSIZE; ++i)
+    {
+      if (currentBuf[i] < newBuf[i])
+      {
+        currentBuf[i] = newBuf[i];
+      }
+    }
+  }
+  else
+  {
+    // Strip bass drum data
+    currentBuf[0] = currentBuf[0] & ~0x30;
+    playDrumsHit();
+    for (uint8_t i = 0; i < EP_MAXPKTSIZE; ++i)
+    {
+      currentBuf[i] = 0;
+    }
+    collecting = true;
+  }
+}
+
 void loop() 
 {
   Usb.Task();
@@ -393,94 +511,11 @@ void loop()
         ++garbageReads;
         return;
       }
-      // Handle kit/gain changes
-      uint8_t dpad = newBuf[2];
-      // Dpad keyup
-      if (prevDpad != 0x08 && dpad == 0x08 && (currentBuf[0] & 0x0F) == 0x00 && (newBuf[0] & 0x0F) == 0x00)
-      {
-        switch (prevDpad)
-        {
-          case 0x00: // UP
-            if (currentKit + 1 < NUM_KITS)
-            {
-              ++currentKit;
-            }
-            break;
-          case 0x04: // DOWN
-            if (currentKit != 0)
-            {
-              --currentKit;
-            }
-            break;
-          case 0x06: // LEFT
-            masterGain = max(-70, masterGain - 1);
-            wTrig.masterGain(masterGain);
-            break;
-          case 0x02: // RIGHT
-            masterGain = min(4, masterGain + 1);
-            wTrig.masterGain(masterGain);
-            break;
-        }
-    
-        display.clearDisplay();
-        display.setCursor(0, 0);     // Start at top-left corner
-        if (prevDpad == 0x06 || prevDpad == 0x02)
-        {
-          display.println("GAIN");
-          itoa(masterGain, numberDispStr, 10);
-          display.println(numberDispStr);
-        }
-        else
-        {
-          display.println("KIT");
-          display.println(kitNames[currentKit]);
-        }
-        display.display();
-      }
-
-      prevDpad = dpad;
-
-      // This is what a clean "bass drum" hit look like
-      // 20 00 08 80 80 80 80 00 00 00 00 00 00 00 00 00 FF
-      // 30 00 08 80 80 80 80 00 00 00 00 00 00 00 00 FF FF 
-      if (!isKickDown && (newBuf[0] & 0x10) == 0x10)
-      {
-        isKickDown = true;
-      }
-      else if (isKickDown && (newBuf[0] & 0x10) == 0x00)
-      {
-        // Always MAXIMUM BASS...or close
-        playDrum(KICK_TRACK, KICK_VOLUME); // 64
-        isKickDown = false;
-      }
-
       
-      if ((newBuf[0] & ~DrumColor::DORG) == 0x00 && newBuf[1] == 0x00)
-      {
-        collecting = false;
-      }
-
-      if (collecting)
-      {
-        for (uint8_t i = 0; i < EP_MAXPKTSIZE; ++i)
-        {
-          if (currentBuf[i] < newBuf[i])
-          {
-            currentBuf[i] = newBuf[i];
-          }
-        }
-      }
-      else
-      {
-        // Strip bass drum data
-        currentBuf[0] = currentBuf[0] & ~0x30;
-        playDrumsHit();
-        for (uint8_t i = 0; i < EP_MAXPKTSIZE; ++i)
-        {
-          currentBuf[i] = 0;
-        }
-        collecting = true;
-      }
+      handleDpad();
+      handleKick();
+      handleDrumHit();
+      
       #else
       memcpy(currentBuf, newBuf, EP_MAXPKTSIZE);
       printRawBuf(); 
