@@ -124,6 +124,12 @@ void printHex(int num)
   Serial.print(tmp);
 }
 
+void resetDisplay()
+{
+  display.clearDisplay();
+  display.setCursor(0, 0);     // Start at top-left corner
+}
+
 // Plays an individual drum track at the specified intensity
 // Handles the switching from primary to secondary tracks
 inline void playDrum(uint8_t track, uint8_t intensity)
@@ -345,13 +351,13 @@ void setup()
   
   if (Usb.Init() == -1) {
     Serial.print(F("\r\nOSC did not start"));
-    display.clearDisplay();
+    resetDisplay();
     display.println("USB FAILURE");
     display.display();
     while (1); //halt
   }
   Serial.print(F("\r\nPS3 USB Library Started"));
-  display.clearDisplay();
+  resetDisplay();
   display.println();
   display.println("USB");
   display.println("ACTIVE");
@@ -373,23 +379,47 @@ void setup()
 
 void displayGain()
 {
-  display.print(masterGain > -70 ? "^" : " ");
-  display.print(" GAIN ");
-  display.println(masterGain < 4 ? "V" : " ");
+  resetDisplay();
+  display.println();
+  if (masterGain < 4)
+  {
+    display.fillTriangle(0, 27, 4, 17, 8, 27, WHITE);
+  }
+  display.print("  GAIN ");
+  if (masterGain > -70)
+  {
+    display.fillTriangle(display.width() - 8, 17, display.width() - 4, 27, display.width(), 17, WHITE);
+  }
   itoa(masterGain, numberDispStr, 10);
   display.println(numberDispStr);
+  display.display();
   
   timeSinceKitDisplayed = millis();
 }
 
 void displayKit()
 {
-  display.print(currentKit > 0 ? "<" : " ");
-  display.print(" KIT ");
+  resetDisplay();
+  display.println();
+  if (currentKit > 0)
+  {
+    display.fillTriangle(0, 22, 8, 17, 8, 27, WHITE);
+  }
+  display.print("  KIT ");
   itoa(currentKit, numberDispStr, 10);
+  if (strlen(numberDispStr) < 2)
+  {
+    display.print(0);
+  }
   display.print(numberDispStr);
-  display.println(currentKit < NUM_KITS - 1 ? ">" : " ");
+  display.print(" ");
+  if (currentKit < NUM_KITS - 1)
+  {
+    display.fillTriangle(display.width() - 8, 17, display.width(), 22, display.width() - 8, 27, WHITE);
+  }
+  display.println();
   display.println(kitNames[currentKit]);
+  display.display();
   
   timeSinceKitDisplayed = 0;
 }
@@ -424,18 +454,15 @@ void handleDpad()
         wTrig.masterGain(masterGain);
         break;
     }
-
-    display.clearDisplay();
-    display.setCursor(0, 0);     // Start at top-left corner
+    
     if (prevDpad == 0x06 || prevDpad == 0x02)
-    {
-      displayGain();
-    }
-    else
     {
       displayKit();
     }
-    display.display();
+    else
+    {
+      displayGain();
+    }
   }
 
   prevDpad = dpad;
@@ -501,13 +528,13 @@ void loop()
     if (!drumsActive)
     {
       drumsActive = true;
-      display.clearDisplay();
-      display.setCursor(0, 0);     // Start at top-left corner
+      resetDisplay();
       display.println();
       display.println("DRUMS");
       display.println("ACTIVE");
       display.display();
       delay(250);
+      displayKit();
     }
     
     // Will fail once every 50 days, but whatever...turn off the kit occasionally =P
