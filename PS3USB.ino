@@ -1,3 +1,4 @@
+// Uncomment the following line to debug the raw USB packets
 //#define RAW_PACKET_DEBUG 1
 
 #include <SPI.h>
@@ -5,66 +6,23 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+// Change this to reflect the number of kits you have
 #define NUM_KITS 2
-#define KIT_OFFSET 16
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-
-// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-#define OLED_RESET     30 // Reset pin # (or -1 if sharing Arduino reset pin)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-
-#include <wavTrigger.h>
-
-/*
- Example sketch for the PS3 USB library - developed by Kristian Lauszus
- For more information visit my blog: http://blog.tkjelectronics.dk/ or
- send me an e-mail:  kristianl@tkjelectronics.com
- */
-
-#include <PS3USB.h>
-
-// Satisfy the IDE, which needs to see the include statment in the ino too.
-#ifdef dobogusinclude
-#include <spi4teensy3.h>
-#endif
-#include <SPI.h>
-
-USB Usb;
-/* You can create the instance of the class in two ways */
-PS3USB PS3(&Usb); // This will just create the instance
-
-bool collecting = true;
-bool isKickDown = false;
-uint8_t currentKit = 0;
-
-uint8_t currentBuf[EP_MAXPKTSIZE];
-uint8_t newBuf[EP_MAXPKTSIZE];
-
-char intensityStr[30];
-
-bool drumsActive = false;
-uint8_t prevDpad = 0xFF;
-uint8_t garbageReads = 0;
-
-wavTrigger wTrig;
-int masterGain = 0;
-
-enum DrumColor {
-  DBLU = 0x01,
-  DGRE = 0x02,
-  DRED = 0x04,
-  DYEL = 0x08,
-  DORG = 0x30
+// Add a name for each of your kits here
+String kitNames[NUM_KITS] = { 
+  "Acoustic",
+  "808"
 };
 
-enum DrumType {
-  DRUM = 0x04,
-  CYM = 0x08
-};
+// Modify this to change the bass volume
+// 64 = Loudest
+// 225 = Quietest
+#define KICK_VOLUME 100
 
-
+// Each track should be duplicated twice per kit
+// This reduces the volume spikes if you vary the intensity of your hits
+// ex. 001_mycrash.wav and 009_mycrash.wav
 #define CRASH_TRACK   1
 #define HIHAT_TRACK   2
 #define HITOM_TRACK   3
@@ -74,60 +32,95 @@ enum DrumType {
 #define RIDE_TRACK    7
 #define SNARE_TRACK   8
 
+// 16 sounds are used per kit (2/drum)
+#define KIT_OFFSET 16
+
+// Offset to the secondary track for each drum (1,9 2,10 etc)
 #define SECONDARY_OFFSET 8
 
+// Modify this if you have a different OLED display
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     30 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#include <wavTrigger.h>
+#include <PS3USB.h>
+
+// Satisfy the IDE, which needs to see the include statment in the ino too.
+#ifdef dobogusinclude
+#include <spi4teensy3.h>
+#endif
+#include <SPI.h>
+
+USB Usb;
+PS3USB PS3(&Usb);
+
+// Are we still collecting data for the current drum hit?
+bool collecting = true;
+// Is the kick drum pedal currently down?
+bool isKickDown = false;
+// The current kit in use, 0 based
+uint8_t currentKit = 0;
+
+// The current USB data packet
+uint8_t currentBuf[EP_MAXPKTSIZE];
+// The next USB data packet
+uint8_t newBuf[EP_MAXPKTSIZE];
+
+// Buffer used to convert numbers to strings for display purposes
+char numberDispStr[30];
+
+// Tracks if the ION drumset has been detected
+bool drumsActive = false;
+// Previous state of the DPAD
+uint8_t prevDpad = 0xFF;
+// How many bogus USB packets we've received on bootup
+uint8_t garbageReads = 0;
+
+// Handles serial commuincations to the Wav Trigger
+wavTrigger wTrig;
+// Master gain for the Wav Trigger
+int masterGain = 0;
+
+// Flag enum representing the color of the drum hit
+enum DrumColor {
+  DBLU = 0x01,
+  DGRE = 0x02,
+  DRED = 0x04,
+  DYEL = 0x08,
+  DORG = 0x30
+};
+
+// Flag enum representing the type of drum hit
+enum DrumType {
+  DRUM = 0x04,
+  CYM = 0x08
+};
+
+// Min/max gain for each drum channel, scaled by the related intensity value
 #define MIN_GAIN      -2
 #define MAX_GAIN      10
 
+// Tracks whether to use the primary or secondary channel for each drum track
 bool useOffsetForTrack[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-void printHex(int num) {
-     char tmp[16];
-     char format[128];
-
-     sprintf(format, "%%.%dX", 2);
-
-     sprintf(tmp, format, num);
-     Serial.print(tmp);
-}
-
-void drawLastHit(uint8_t track, uint8_t trackToUse) {
-  display.clearDisplay();
-  display.setCursor(0, 0);     // Start at top-left corner
+// Prints a number in hex format to the serial monitor
+void printHex(int num)
+{
+  char tmp[16];
+  char format[128];
   
-  switch (track)
-  {
-    case CRASH_TRACK:
-      display.println("CRASH");
-      break;
-    case HIHAT_TRACK:
-      display.println("HIHAT");
-      break;
-    case HITOM_TRACK:
-      display.println("HITOM: ");
-      break;
-    case KICK_TRACK:
-      display.println("KICK: ");
-      break;
-    case LOWTOM_TRACK:
-      display.println("LOWTOM: ");
-      break;
-    case MIDTOM_TRACK:
-      display.println("MIDTOM: ");
-      break;
-    case RIDE_TRACK:
-      display.println("RIDE: ");
-      break;
-    case SNARE_TRACK:
-      display.println("SNARE: ");
-      break;
-  }
-
-  itoa(trackToUse, intensityStr, 10);
-  display.println(intensityStr);
-  display.display();
+  sprintf(format, "%%.%dX", 2);
+  
+  sprintf(tmp, format, num);
+  Serial.print(tmp);
 }
 
+// Plays an individual drum track at the specified intensity
+// Handles the switching from primary to secondary tracks
 inline void playDrum(uint8_t track, uint8_t intensity)
 {
   int triggerVol = map(intensity, 225, 64, MIN_GAIN, MAX_GAIN);
@@ -139,9 +132,10 @@ inline void playDrum(uint8_t track, uint8_t intensity)
   useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
   wTrig.trackPlayPoly(trackToUse);
   wTrig.trackGain(trackToUse, triggerVol);
-  drawLastHit(track, trackToUse);
 }
 
+// Queues an individual drum track at the specified intensity
+// Handles the switching from primary to secondary tracks
 inline void playMultiDrum(uint8_t track, uint8_t intensity)
 {
   int triggerVol = map(intensity, 225, 64, MIN_GAIN, MAX_GAIN);
@@ -153,11 +147,12 @@ inline void playMultiDrum(uint8_t track, uint8_t intensity)
   useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
   wTrig.trackLoad(trackToUse);
   wTrig.trackGain(trackToUse, triggerVol);
-  drawLastHit(track, trackToUse);
 }
 
-// Assume 0C value for drum/cymbal mask
-void printDrumCombo(uint8_t color) {
+// Plays a combination of drums
+// Assumes a 0C value for drum/cymbal mask
+void playDrumCombo(uint8_t color)
+{
   // DYEL + CBLU => FF at 10
   // CYEL + DBLU => FF at 9
   // DYEL + CGRE => None?
@@ -172,7 +167,13 @@ void printDrumCombo(uint8_t color) {
   
   uint8_t flag9 = currentBuf[9];
   uint8_t flag10 = currentBuf[10];
-  if (color == (DrumColor::DYEL | DrumColor::DBLU))
+
+  bool isRed = (color & DrumColor::DRED) == DrumColor::DRED;
+  bool isYellow = (color & DrumColor::DYEL) == DrumColor::DYEL;
+  bool isBlue = (color & DrumColor::DBLU) == DrumColor::DBLU;
+  bool isGreen = (color & DrumColor::DGRE) == DrumColor::DGRE;
+  
+  if (isYellow && isBlue)
   {
     if (flag10 == 0xFF)
     {
@@ -185,7 +186,7 @@ void printDrumCombo(uint8_t color) {
       playMultiDrum(MIDTOM_TRACK, blueIntensity);
     }
   }
-  else if (color == (DrumColor::DYEL | DrumColor::DGRE))
+  else if (isYellow && isGreen)
   {
     if (flag9 == 0xFF)
     {
@@ -198,7 +199,7 @@ void printDrumCombo(uint8_t color) {
       playMultiDrum(CRASH_TRACK, greenIntensity);
     }
   }
-  else if (color == (DrumColor::DBLU | DrumColor::DGRE))
+  else if (isBlue && isGreen)
   {
     if (flag10 == 0xFF)
     {
@@ -211,19 +212,19 @@ void printDrumCombo(uint8_t color) {
       playMultiDrum(CRASH_TRACK, greenIntensity);
     }
   }
-  else if ((color & DrumColor::DRED) == DrumColor::DRED)
+  else if (isRed)
   {
-    if ((color & DrumColor::DYEL) == DrumColor::DYEL)
+    if (isYellow)
     {
       playMultiDrum(SNARE_TRACK, redIntensity);
       playMultiDrum(HIHAT_TRACK, yellowIntensity);
     }
-    else if ((color & DrumColor::DBLU) == DrumColor::DBLU)
+    else if (isBlue)
     {
       playMultiDrum(SNARE_TRACK, redIntensity);
       playMultiDrum(RIDE_TRACK, blueIntensity);
     }
-    else if ((color & DrumColor::DGRE) == DrumColor::DGRE)
+    else if (isGreen)
     {
       playMultiDrum(SNARE_TRACK, redIntensity);
       playMultiDrum(CRASH_TRACK, greenIntensity);
@@ -231,13 +232,15 @@ void printDrumCombo(uint8_t color) {
   }
   else
   {
-    Serial.print("WTF\r\n");
+    Serial.print("Invalid combo hit\r\n");
   }
 
   wTrig.resumeAllInSync();
 }
 
-void printDrumsHit() {
+// Play a drum hit, including multi-hits
+void playDrumsHit()
+{
   uint8_t color = currentBuf[0];
   uint8_t drumCym = currentBuf[1];
   uint8_t intensity;
@@ -245,18 +248,20 @@ void printDrumsHit() {
   if (drumCym == (DrumType::DRUM | DrumType::CYM) 
     && color != DrumColor::DYEL && color != DrumColor::DBLU && color != DrumColor::DGRE)
   {
-    printDrumCombo(color);
+    playDrumCombo(color);
     return;
   }
 
+  bool isDrum = (drumCym & DrumType::DRUM) == DrumType::DRUM;
+
   if ((color & DrumColor::DBLU) == DrumColor::DBLU)
   {
-    if ((drumCym & DrumType::DRUM) == DrumType::DRUM)
+    if (isDrum)
     {
       intensity = currentBuf[14];
       playDrum(MIDTOM_TRACK, intensity);
     }
-    if ((drumCym & DrumType::CYM) == DrumType::CYM)
+    else
     {
       intensity = currentBuf[14];
       playDrum(RIDE_TRACK, intensity);
@@ -265,12 +270,12 @@ void printDrumsHit() {
 
   if ((color & DrumColor::DGRE) == DrumColor::DGRE)
   {
-    if ((drumCym & DrumType::DRUM) == DrumType::DRUM)
+    if (isDrum)
     {
       intensity = currentBuf[13];
       playDrum(LOWTOM_TRACK, intensity);
     }
-    if ((drumCym & DrumType::CYM) == DrumType::CYM)
+    else
     {
       intensity = currentBuf[13];
       playDrum(CRASH_TRACK, intensity);
@@ -279,25 +284,25 @@ void printDrumsHit() {
 
   if ((color & DrumColor::DRED) == DrumColor::DRED)
   {
-    if ((drumCym & DrumType::DRUM) == DrumType::DRUM)
+    if (isDrum)
     {
       intensity = currentBuf[12];
       playDrum(SNARE_TRACK, intensity);
     }
-    if ((drumCym & DrumType::CYM) == DrumType::CYM)
+    else
     {
-      Serial.print(" FAKE cymbal?\r\n");
+      Serial.print("FAKE cymbal?\r\n");
     }
   }
 
   if ((color & DrumColor::DYEL) == DrumColor::DYEL)
   {
-    if ((drumCym & DrumType::DRUM) == DrumType::DRUM)
+    if (isDrum)
     {
       intensity = currentBuf[11];
       playDrum(HITOM_TRACK, intensity);
     }
-    if ((drumCym & DrumType::CYM) == DrumType::CYM)
+    else
     {
       intensity = currentBuf[11];
       playDrum(HIHAT_TRACK, intensity);
@@ -305,6 +310,8 @@ void printDrumsHit() {
   }
 }
 
+#ifdef RAW_PACKET_DEBUG
+// Prints the current USB packet to the serial monitor for debug purposes
 void printRawBuf()
 { 
   for (uint8_t i = 0; i < 17; ++i)
@@ -314,8 +321,10 @@ void printRawBuf()
   }
   Serial.print("\r\n");
 }
+#endif
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
 
   // Init the OLED
@@ -329,9 +338,6 @@ void setup() {
   display.setCursor(0, 0);     // Start at top-left corner
   display.cp437(true);         // Use full 256 char 'Code Page 437' font
   
-#if !defined(__MIPSEL__)
-  //while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
-#endif
   if (Usb.Init() == -1) {
     Serial.print(F("\r\nOSC did not start"));
     display.clearDisplay();
@@ -359,15 +365,13 @@ void setup() {
   wTrig.stopAllTracks();
   wTrig.samplerateOffset(0);  
 }
-void loop() {
+
+void loop() 
+{
   Usb.Task();
-
-
-  if (PS3.PS3Connected || PS3.PS3NavigationConnected) {
-    // void PS3USB::getRawBuffer(uint8_t* buf) {
-     //memcpy(buf, readBuf, EP_MAXPKTSIZE);
-    //}
-
+  
+  if (PS3.PS3Connected)
+  {
     if (!drumsActive)
     {
       drumsActive = true;
@@ -389,7 +393,7 @@ void loop() {
         ++garbageReads;
         return;
       }
-      // Handle gain changes
+      // Handle kit/gain changes
       uint8_t dpad = newBuf[2];
       // Dpad keyup
       if (prevDpad != 0x08 && dpad == 0x08 && (currentBuf[0] & 0x0F) == 0x00 && (newBuf[0] & 0x0F) == 0x00)
@@ -423,14 +427,13 @@ void loop() {
         if (prevDpad == 0x06 || prevDpad == 0x02)
         {
           display.println("GAIN");
-          itoa(masterGain, intensityStr, 10);
-          display.println(intensityStr);
+          itoa(masterGain, numberDispStr, 10);
+          display.println(numberDispStr);
         }
         else
         {
           display.println("KIT");
-          itoa(currentKit, intensityStr, 10);
-          display.println(intensityStr);
+          display.println(kitNames[currentKit]);
         }
         display.display();
       }
@@ -442,16 +445,12 @@ void loop() {
       // 30 00 08 80 80 80 80 00 00 00 00 00 00 00 00 FF FF 
       if (!isKickDown && (newBuf[0] & 0x10) == 0x10)
       {
-        Serial.print("Kick up\r\n");
         isKickDown = true;
       }
       else if (isKickDown && (newBuf[0] & 0x10) == 0x00)
       {
-        // Always MAXIMUM BASS
-        playDrum(KICK_TRACK, 64);
-        printHex(0xFF);
-        
-        Serial.print(" Kick down\r\n");
+        // Always MAXIMUM BASS...or close
+        playDrum(KICK_TRACK, KICK_VOLUME); // 64
         isKickDown = false;
       }
 
@@ -475,7 +474,7 @@ void loop() {
       {
         // Strip bass drum data
         currentBuf[0] = currentBuf[0] & ~0x30;
-        printDrumsHit();
+        playDrumsHit();
         for (uint8_t i = 0; i < EP_MAXPKTSIZE; ++i)
         {
           currentBuf[i] = 0;
