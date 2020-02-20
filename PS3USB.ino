@@ -34,7 +34,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 USB Usb;
 /* You can create the instance of the class in two ways */
 PS3USB PS3(&Usb); // This will just create the instance
-//PS3USB PS3(&Usb,0x00,0x15,0x83,0x3D,0x0A,0x57); // This will also store the bluetooth address - this can be obtained from the dongle when running the sketch
 
 bool collecting = true;
 bool isKickDown = false;
@@ -140,7 +139,7 @@ inline void playDrum(uint8_t track, uint8_t intensity)
   useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
   wTrig.trackPlayPoly(trackToUse);
   wTrig.trackGain(trackToUse, triggerVol);
-  //drawLastHit(track, trackToUse);
+  drawLastHit(track, trackToUse);
 }
 
 inline void playMultiDrum(uint8_t track, uint8_t intensity)
@@ -154,6 +153,7 @@ inline void playMultiDrum(uint8_t track, uint8_t intensity)
   useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
   wTrig.trackLoad(trackToUse);
   wTrig.trackGain(trackToUse, triggerVol);
+  drawLastHit(track, trackToUse);
 }
 
 // Assume 0C value for drum/cymbal mask
@@ -392,7 +392,7 @@ void loop() {
       // Handle gain changes
       uint8_t dpad = newBuf[2];
       // Dpad keyup
-      if (prevDpad != 0x08 && dpad == 0x08 && (newBuf[0] & 0x0F) == 0x00)
+      if (prevDpad != 0x08 && dpad == 0x08 && (currentBuf[0] & 0x0F) == 0x00 && (newBuf[0] & 0x0F) == 0x00)
       {
         switch (prevDpad)
         {
