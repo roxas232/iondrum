@@ -5,7 +5,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define NUM_KITS 1
+#define NUM_KITS 2
 #define KIT_OFFSET 16
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -46,8 +46,8 @@ uint8_t newBuf[EP_MAXPKTSIZE];
 char intensityStr[30];
 
 bool drumsActive = false;
-//bool isHoldingDpad = false;
 uint8_t prevDpad = 0xFF;
+uint8_t garbageReads = 0;
 
 wavTrigger wTrig;
 int masterGain = 0;
@@ -140,7 +140,20 @@ inline void playDrum(uint8_t track, uint8_t intensity)
   useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
   wTrig.trackPlayPoly(trackToUse);
   wTrig.trackGain(trackToUse, triggerVol);
-  drawLastHit(track, trackToUse);
+  //drawLastHit(track, trackToUse);
+}
+
+inline void playMultiDrum(uint8_t track, uint8_t intensity)
+{
+  int triggerVol = map(intensity, 225, 64, MIN_GAIN, MAX_GAIN);
+  uint8_t trackToUse = track + (currentKit * KIT_OFFSET);
+  if (useOffsetForTrack[track - 1])
+  {
+    trackToUse += SECONDARY_OFFSET;
+  }
+  useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
+  wTrig.trackLoad(trackToUse);
+  wTrig.trackGain(trackToUse, triggerVol);
 }
 
 // Assume 0C value for drum/cymbal mask
@@ -163,108 +176,65 @@ void printDrumCombo(uint8_t color) {
   {
     if (flag10 == 0xFF)
     {
-      playDrum(HITOM_TRACK, yellowIntensity);
-      playDrum(RIDE_TRACK, blueIntensity);
-      
-      printHex(yellowIntensity);
-      Serial.print(" Hi-tom + ");
-      printHex(blueIntensity);
-      Serial.print(" Ride cymbal\r\n");
+      playMultiDrum(HITOM_TRACK, yellowIntensity);
+      playMultiDrum(RIDE_TRACK, blueIntensity);
     }
     else // Could check flag9
     {
-      playDrum(HIHAT_TRACK, yellowIntensity);
-      playDrum(MIDTOM_TRACK, blueIntensity);
-      
-      printHex(yellowIntensity);
-      Serial.print(" Hi-hat + ");
-      printHex(blueIntensity);
-      Serial.print(" Mid-tom\r\n");
+      playMultiDrum(HIHAT_TRACK, yellowIntensity);
+      playMultiDrum(MIDTOM_TRACK, blueIntensity);
     }
   }
   else if (color == (DrumColor::DYEL | DrumColor::DGRE))
   {
     if (flag9 == 0xFF)
     {
-      playDrum(HIHAT_TRACK, yellowIntensity);
-      playDrum(LOWTOM_TRACK, greenIntensity);
-      
-      printHex(yellowIntensity);
-      Serial.print(" Hi-hat + ");
-      printHex(greenIntensity);
-      Serial.print(" Low tom\r\n");
+      playMultiDrum(HIHAT_TRACK, yellowIntensity);
+      playMultiDrum(LOWTOM_TRACK, greenIntensity);
     }
     else
     {
-      playDrum(HITOM_TRACK, yellowIntensity);
-      playDrum(CRASH_TRACK, greenIntensity);
-      
-      printHex(yellowIntensity);
-      Serial.print(" Hi-tom + ");
-      printHex(greenIntensity);
-      Serial.print(" Crash cymbal\r\n");
+      playMultiDrum(HITOM_TRACK, yellowIntensity);
+      playMultiDrum(CRASH_TRACK, greenIntensity);
     }
   }
   else if (color == (DrumColor::DBLU | DrumColor::DGRE))
   {
     if (flag10 == 0xFF)
     {
-      playDrum(RIDE_TRACK, blueIntensity);
-      playDrum(LOWTOM_TRACK, greenIntensity);
-      
-      printHex(blueIntensity);
-      Serial.print(" Ride cymbal + ");
-      printHex(greenIntensity);
-      Serial.print(" Low tom\r\n");
+      playMultiDrum(RIDE_TRACK, blueIntensity);
+      playMultiDrum(LOWTOM_TRACK, greenIntensity);
     }
     else
     {
-      playDrum(MIDTOM_TRACK, blueIntensity);
-      playDrum(CRASH_TRACK, greenIntensity);
-      
-      printHex(blueIntensity);
-      Serial.print(" Mid-tom + ");
-      printHex(greenIntensity);
-      Serial.print(" Crash cymbal\r\n");
+      playMultiDrum(MIDTOM_TRACK, blueIntensity);
+      playMultiDrum(CRASH_TRACK, greenIntensity);
     }
   }
   else if ((color & DrumColor::DRED) == DrumColor::DRED)
   {
     if ((color & DrumColor::DYEL) == DrumColor::DYEL)
     {
-      playDrum(SNARE_TRACK, redIntensity);
-      playDrum(HIHAT_TRACK, yellowIntensity);
-      
-      printHex(redIntensity);
-      Serial.print(" Snare + ");
-      printHex(yellowIntensity);
-      Serial.print(" Hi-hat\r\n");
+      playMultiDrum(SNARE_TRACK, redIntensity);
+      playMultiDrum(HIHAT_TRACK, yellowIntensity);
     }
     else if ((color & DrumColor::DBLU) == DrumColor::DBLU)
     {
-      playDrum(SNARE_TRACK, redIntensity);
-      playDrum(RIDE_TRACK, blueIntensity);
-      
-      printHex(redIntensity);
-      Serial.print(" Snare + ");
-      printHex(blueIntensity);
-      Serial.print(" Ride cymbal\r\n");
+      playMultiDrum(SNARE_TRACK, redIntensity);
+      playMultiDrum(RIDE_TRACK, blueIntensity);
     }
     else if ((color & DrumColor::DGRE) == DrumColor::DGRE)
     {
-      playDrum(SNARE_TRACK, redIntensity);
-      playDrum(CRASH_TRACK, greenIntensity);
-      
-      printHex(redIntensity);
-      Serial.print(" Snare + ");
-      printHex(greenIntensity);
-      Serial.print(" Crash cymbal\r\n");
+      playMultiDrum(SNARE_TRACK, redIntensity);
+      playMultiDrum(CRASH_TRACK, greenIntensity);
     }
   }
   else
   {
     Serial.print("WTF\r\n");
   }
+
+  wTrig.resumeAllInSync();
 }
 
 void printDrumsHit() {
@@ -285,15 +255,11 @@ void printDrumsHit() {
     {
       intensity = currentBuf[14];
       playDrum(MIDTOM_TRACK, intensity);
-      printHex(intensity);
-      Serial.print(" Mid-tom\r\n");
     }
     if ((drumCym & DrumType::CYM) == DrumType::CYM)
     {
       intensity = currentBuf[14];
       playDrum(RIDE_TRACK, intensity);
-      printHex(intensity);
-      Serial.print(" Ride cymbal\r\n");
     }
   }
 
@@ -303,15 +269,11 @@ void printDrumsHit() {
     {
       intensity = currentBuf[13];
       playDrum(LOWTOM_TRACK, intensity);
-      printHex(intensity);
-      Serial.print(" Low-tom\r\n");
     }
     if ((drumCym & DrumType::CYM) == DrumType::CYM)
     {
       intensity = currentBuf[13];
       playDrum(CRASH_TRACK, intensity);
-      printHex(intensity);
-      Serial.print(" Crash cymbal\r\n");
     }
   }
 
@@ -321,9 +283,6 @@ void printDrumsHit() {
     {
       intensity = currentBuf[12];
       playDrum(SNARE_TRACK, intensity);
-      
-      printHex(intensity);
-      Serial.print(" trig Snare\r\n");
     }
     if ((drumCym & DrumType::CYM) == DrumType::CYM)
     {
@@ -337,28 +296,17 @@ void printDrumsHit() {
     {
       intensity = currentBuf[11];
       playDrum(HITOM_TRACK, intensity);
-      printHex(intensity);
-      Serial.print(" Hi-tom\r\n");
     }
     if ((drumCym & DrumType::CYM) == DrumType::CYM)
     {
       intensity = currentBuf[11];
       playDrum(HIHAT_TRACK, intensity);
-      printHex(intensity);
-      Serial.print(" Hi-hat\r\n");
     }
   }
 }
 
 void printRawBuf()
-{
-  /*for (uint8_t i = 0; i < 17; ++i)
-  {
-    printHex(i);
-    Serial.print(" ");
-  }
-  Serial.print("\r\n");*/
-  
+{ 
   for (uint8_t i = 0; i < 17; ++i)
   {
     printHex(currentBuf[i]);
@@ -436,6 +384,11 @@ void loop() {
     if (memcmp(currentBuf, newBuf, EP_MAXPKTSIZE) != 0)
     {
       #ifndef RAW_PACKET_DEBUG
+      if (garbageReads < 4)
+      {
+        ++garbageReads;
+        return;
+      }
       // Handle gain changes
       uint8_t dpad = newBuf[2];
       // Dpad keyup
@@ -480,18 +433,9 @@ void loop() {
           display.println(intensityStr);
         }
         display.display();
-        /*if (!isHoldingDpad)
-        {
-          delay(250); // Don't immediately start treating as a repeat
-          isHoldingDpad = true;
-        }*/
-
-        //return;
       }
 
       prevDpad = dpad;
-
-      //isHoldingDpad = false;
 
       // This is what a clean "bass drum" hit look like
       // 20 00 08 80 80 80 80 00 00 00 00 00 00 00 00 00 FF
