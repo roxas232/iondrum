@@ -107,6 +107,11 @@ enum DrumType {
 // Tracks whether to use the primary or secondary channel for each drum track
 bool useOffsetForTrack[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
+// Tracks the time the display was last toggled deliberately away from the kit display
+unsigned long timeSinceKitDisplayed = 0;
+// Time in ms for how long before switching back to kit display
+#define DISPLAY_KIT_MS 2000
+
 // Prints a number in hex format to the serial monitor
 void printHex(int num)
 {
@@ -373,6 +378,8 @@ void displayGain()
   display.println(masterGain < 4 ? "V" : " ");
   itoa(masterGain, numberDispStr, 10);
   display.println(numberDispStr);
+  
+  timeSinceKitDisplayed = millis();
 }
 
 void displayKit()
@@ -382,8 +389,9 @@ void displayKit()
   itoa(currentKit, numberDispStr, 10);
   display.print(numberDispStr);
   display.println(currentKit < NUM_KITS - 1 ? ">" : " ");
-
   display.println(kitNames[currentKit]);
+  
+  timeSinceKitDisplayed = 0;
 }
 
 // Handle kit/gain changes
@@ -500,6 +508,12 @@ void loop()
       display.println("ACTIVE");
       display.display();
       delay(250);
+    }
+    
+    // Will fail once every 50 days, but whatever...turn off the kit occasionally =P
+    if (timeSinceKitDisplayed != 0 && timeSinceKitDisplayed + DISPLAY_KIT_MS < millis())
+    {
+      displayKit(); // Resets timeSinceKitDisplayed to 0
     }
 
     PS3.getRawBuffer(newBuf);
