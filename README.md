@@ -24,6 +24,7 @@ Small modifications were made to the USB Host Shield library to let an ION Drum 
 * Add male headers to the Wav Trigger's serial inputs
 * Run VCC and Ground from the Micro USB breakout to both the Wav Trigger and the OLED Display
 * Run SDA and SCL from the Arduino to the OLED display
+* Run pin 30 from the Arduino to the OLED display reset pin
 * Run TX and RX to the opposite pins on the Wav Trigger
 
 # MicroSD card setup
