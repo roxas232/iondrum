@@ -41,7 +41,7 @@ ex. 001_mycrash.wav and 009_mycrash.wav
 * RIDE_TRACK    7
 * SNARE_TRACK   8
 
-To add more kits, continue following this pattern with the next set of higher nubmers.
+To add more kits, continue following this pattern with the next set of higher numbers.
 
 See youtube.com/watch?v=B9iIxnMUk7E&feature=youtu.be for details on how to convert the files to the appropriate format.
 
