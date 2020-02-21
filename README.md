@@ -1,5 +1,7 @@
 # iondrum
-Arduino code to use a PS3 ION Drum Rocker as a standalone electric drum kit
+Arduino code to use a PS3 ION Drum Rocker as a standalone electric drum kit.
+
+Small modifications were made to the USB Host Shield library to let an ION Drum Rocker be processed as a PS3 controller.
 
 # Parts List
 * Arduino Mega 2560
