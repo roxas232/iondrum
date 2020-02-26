@@ -130,21 +130,6 @@ void resetDisplay()
   display.setCursor(0, 0);     // Start at top-left corner
 }
 
-// Plays an individual drum track at the specified intensity
-// Handles the switching from primary to secondary tracks
-inline void playDrum(uint8_t track, uint8_t intensity)
-{
-  int triggerVol = map(intensity, 225, 64, MIN_GAIN, MAX_GAIN);
-  uint8_t trackToUse = track + (currentKit * KIT_OFFSET);
-  if (useOffsetForTrack[track - 1])
-  {
-    trackToUse += SECONDARY_OFFSET;
-  }
-  useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
-  wTrig.trackPlayPoly(trackToUse);
-  wTrig.trackGain(trackToUse, triggerVol);
-}
-
 // Queues an individual drum track at the specified intensity
 // Handles the switching from primary to secondary tracks
 inline void playMultiDrum(uint8_t track, uint8_t intensity)
@@ -158,6 +143,26 @@ inline void playMultiDrum(uint8_t track, uint8_t intensity)
   useOffsetForTrack[track - 1] = !useOffsetForTrack[track - 1];
   wTrig.trackLoad(trackToUse);
   wTrig.trackGain(trackToUse, triggerVol);
+}
+
+// Process USB data to determine if a bass drum hit occurred
+// and play noise, wTrig.resumeAllInSync() must be triggered by caller
+void handleKick()
+{
+  // This is what a clean "bass drum" hit look like
+  // 20 00 08 80 80 80 80 00 00 00 00 00 00 00 00 00 FF
+  // 30 00 08 80 80 80 80 00 00 00 00 00 00 00 00 FF FF 
+  if (!isKickDown && (newBuf[0] & 0x10) == 0x10)
+  {
+    isKickDown = true;
+  }
+  else if (isKickDown && (newBuf[0] & 0x10) == 0x00)
+  {
+    // Always MAXIMUM BASS...or close
+    playMultiDrum(KICK_TRACK, KICK_VOLUME); // 64
+    isKickDown = false;
+    // Will get triggered later
+  }
 }
 
 // Plays a combination of drums
@@ -176,8 +181,8 @@ void playDrumCombo(uint8_t color)
   uint8_t blueIntensity = currentBuf[14];
   uint8_t greenIntensity = currentBuf[13];
   
-  uint8_t flag9 = currentBuf[9];
-  uint8_t flag10 = currentBuf[10];
+  bool useHiHat = currentBuf[9] == 0xFF;
+  bool useRide = currentBuf[10] == 0xFF;
 
   bool isRed = (color & DrumColor::DRED) == DrumColor::DRED;
   bool isYellow = (color & DrumColor::DYEL) == DrumColor::DYEL;
@@ -186,12 +191,12 @@ void playDrumCombo(uint8_t color)
   
   if (isYellow && isBlue)
   {
-    if (flag10 == 0xFF)
+    if (useRide)
     {
       playMultiDrum(HITOM_TRACK, yellowIntensity);
       playMultiDrum(RIDE_TRACK, blueIntensity);
     }
-    else // Could check flag9
+    else // Could check currentBuf[9]
     {
       playMultiDrum(HIHAT_TRACK, yellowIntensity);
       playMultiDrum(MIDTOM_TRACK, blueIntensity);
@@ -199,7 +204,7 @@ void playDrumCombo(uint8_t color)
   }
   else if (isYellow && isGreen)
   {
-    if (flag9 == 0xFF)
+    if (useHiHat)
     {
       playMultiDrum(HIHAT_TRACK, yellowIntensity);
       playMultiDrum(LOWTOM_TRACK, greenIntensity);
@@ -212,7 +217,7 @@ void playDrumCombo(uint8_t color)
   }
   else if (isBlue && isGreen)
   {
-    if (flag10 == 0xFF)
+    if (useRide)
     {
       playMultiDrum(RIDE_TRACK, blueIntensity);
       playMultiDrum(LOWTOM_TRACK, greenIntensity);
@@ -256,6 +261,13 @@ void playDrumsHit()
   uint8_t drumCym = currentBuf[1];
   uint8_t intensity;
 
+  // Handle bass drum
+  handleKick(); // TODO: Could pass color here and strip kick data?
+
+  // Strip bass drum data
+  color = color & ~0x30;
+
+  // Drum and cymbal hit that is not a single color
   if (drumCym == (DrumType::DRUM | DrumType::CYM) 
     && color != DrumColor::DYEL && color != DrumColor::DBLU && color != DrumColor::DGRE)
   {
@@ -264,61 +276,63 @@ void playDrumsHit()
   }
 
   bool isDrum = (drumCym & DrumType::DRUM) == DrumType::DRUM;
-
-  if ((color & DrumColor::DBLU) == DrumColor::DBLU)
-  {
-    if (isDrum)
-    {
-      intensity = currentBuf[14];
-      playDrum(MIDTOM_TRACK, intensity);
-    }
-    else
-    {
-      intensity = currentBuf[14];
-      playDrum(RIDE_TRACK, intensity);
-    }
-  }
-
-  if ((color & DrumColor::DGRE) == DrumColor::DGRE)
-  {
-    if (isDrum)
-    {
-      intensity = currentBuf[13];
-      playDrum(LOWTOM_TRACK, intensity);
-    }
-    else
-    {
-      intensity = currentBuf[13];
-      playDrum(CRASH_TRACK, intensity);
-    }
-  }
+  bool isCym = (drumCym & DrumType::CYM) == DrumType::CYM;
 
   if ((color & DrumColor::DRED) == DrumColor::DRED)
   {
+    intensity = currentBuf[12];
+    
     if (isDrum)
     {
-      intensity = currentBuf[12];
-      playDrum(SNARE_TRACK, intensity);
-    }
-    else
-    {
-      Serial.print("FAKE cymbal?\r\n");
+      playMultiDrum(SNARE_TRACK, intensity);
     }
   }
 
   if ((color & DrumColor::DYEL) == DrumColor::DYEL)
   {
+    intensity = currentBuf[11];
+    
     if (isDrum)
     {
-      intensity = currentBuf[11];
-      playDrum(HITOM_TRACK, intensity);
+      playMultiDrum(HITOM_TRACK, intensity);
     }
-    else
+    
+    if (isCym)
     {
-      intensity = currentBuf[11];
-      playDrum(HIHAT_TRACK, intensity);
+      playMultiDrum(HIHAT_TRACK, intensity);
     }
   }
+
+  if ((color & DrumColor::DBLU) == DrumColor::DBLU)
+  {
+    intensity = currentBuf[14];
+    
+    if (isDrum)
+    {
+      playMultiDrum(MIDTOM_TRACK, intensity);
+    }
+    
+    if (isCym)
+    {
+      playMultiDrum(RIDE_TRACK, intensity);
+    }
+  }
+
+  if ((color & DrumColor::DGRE) == DrumColor::DGRE)
+  {
+    intensity = currentBuf[13];
+    if (isDrum)
+    {
+      playMultiDrum(LOWTOM_TRACK, intensity);
+    }
+
+    if (isCym)
+    {
+      playMultiDrum(CRASH_TRACK, intensity);
+    }
+  }
+
+  wTrig.resumeAllInSync();
 }
 
 #ifdef RAW_PACKET_DEBUG
@@ -468,25 +482,6 @@ void handleDpad()
   prevDpad = dpad;
 }
 
-// Process USB data to determine if a bass drum hit occurred
-// and play noise
-void handleKick()
-{
-  // This is what a clean "bass drum" hit look like
-  // 20 00 08 80 80 80 80 00 00 00 00 00 00 00 00 00 FF
-  // 30 00 08 80 80 80 80 00 00 00 00 00 00 00 00 FF FF 
-  if (!isKickDown && (newBuf[0] & 0x10) == 0x10)
-  {
-    isKickDown = true;
-  }
-  else if (isKickDown && (newBuf[0] & 0x10) == 0x00)
-  {
-    // Always MAXIMUM BASS...or close
-    playDrum(KICK_TRACK, KICK_VOLUME); // 64
-    isKickDown = false;
-  }
-}
-
 // Process USB data to determine if a normal drum and/or cymbal hit occurred
 // and play noise
 void handleDrumHit()
@@ -508,8 +503,6 @@ void handleDrumHit()
   }
   else
   {
-    // Strip bass drum data
-    currentBuf[0] = currentBuf[0] & ~0x30;
     playDrumsHit();
     for (uint8_t i = 0; i < EP_MAXPKTSIZE; ++i)
     {
@@ -554,7 +547,6 @@ void loop()
       }
       
       handleDpad();
-      handleKick();
       handleDrumHit();
       
       #else
