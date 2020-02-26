@@ -17,6 +17,7 @@ Small modifications were made to the USB Host Shield library to let an ION Drum 
 * Micro USB breakout board
 * MicroSD card (just has to be big enough to hold all the WAV drum samples you plan to use)
 * PS3 Ion Drum Rocker
+* Male pin headers
 
 # Wiring Guide
 * Add male headers to the bottom of the USB Host Shield
@@ -24,6 +25,7 @@ Small modifications were made to the USB Host Shield library to let an ION Drum 
 * Solder a jumper wire from the Micro USB breakout board's VCC to the USB Host Shield's VCC, and the same for ground
 * Solder a jumper wire from pin 7 on the USB Host Shield to the RST pin
 * Run jumpers from the USB Host Shield to the Arduino pins 11 -> 51, 12 -> 50, and 13 -> 52
+  * I actually recommend soldering these wires to the bottom of the Arduino since I ripped these off multiple times in development
 * Add male headers to the Wav Trigger's serial inputs
 * Run VCC and Ground from the Micro USB breakout to both the Wav Trigger and the OLED Display
 * Run SDA and SCL from the Arduino to the OLED display
